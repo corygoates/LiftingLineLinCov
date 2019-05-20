@@ -1,0 +1,1 @@
+Eqn 1.9.10 is applicable for high-aspect ratios and small angles of attack. Phillips recommends using it to find an initial estimate for the vortex strength distribution.
