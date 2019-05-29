@@ -7,7 +7,7 @@
     },
     "solver":{
         "type" : "nonlinear",
-        "convergence" : 1.0e-10,
+        "convergence" : 0.0000000001,
         "relaxation": 1.0
     },
     "plane": {

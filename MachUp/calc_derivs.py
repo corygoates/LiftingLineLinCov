@@ -15,11 +15,11 @@ def run_perturbed_position(configs,pos,perturbation):
 
     forward_file = pos+"forward.json"
     with open(forward_file, 'w', newline='\r\n') as dump_file:
-        json.dump(perturb_forward,dump_file)
+        json.dump(perturb_forward,dump_file,indent=4)
 
     backward_file = pos+"backward.json"
     with open(backward_file, 'w', newline='\r\n') as dump_file:
-        json.dump(perturb_backward,dump_file)
+        json.dump(perturb_backward,dump_file,indent=4)
 
     os.system("./Machup.out "+forward_file)
     os.system("./Machup.out "+backward_file)
@@ -28,11 +28,12 @@ def run_perturbed_position(configs,pos,perturbation):
 
 def run_base_case(configs):
 
-    base_configs["run"] = {"forces":""}
+    configs["run"] = {"forces":""}
+    configs["solver"]["convergence"] = 1e-4
 
     base_file = "base.json"
-    with open(base_file,'w', newline='\r\n') as dump_file:
-        json.dump(base_configs,dump_file)
+    with open(base_file,'w') as dump_file:
+        json.dump(configs,dump_file,indent=4)
 
     os.system("./Machup.out "+base_file)
 
@@ -86,7 +87,7 @@ if __name__=="__main__":
     # Find the matrix of derivatives of aerodynamic forces and moments with respect to position and orientation.
 
     # Initialize
-    os.system("rm input_*")
+    os.system("rm *_forces.json")
     base_config_file = 'input.json'
     with open(base_config_file) as base_file:
         base_configs = json.load(base_file)
