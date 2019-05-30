@@ -3,6 +3,46 @@ import json
 import os
 import copy
 
+def combine_and_trim(lead_filename,tail_filename,separation_vec):
+    
+    with open(lead_filename,'r') as lead_file_handle:
+        lead_dict = json.load(lead_file_handle)
+
+    with open(tail_filename,'r') as tail_file_handle:
+        tail_dict = json.load(tail_file_handle)
+
+    combined_dict = copy.deepcopy(lead_dict)
+
+    combined_dict["airfoil_DB"] = "./AirfoilDatabase"
+    combined_dict["run"] = {"forces":""}
+    combined_dict["plane"]["name"] = "lead_tail_combo"
+    combined_dict["condition"]["alpha"] = 0.0
+    combined_dict["condition"]["beta"] = 0.0
+
+    for key in tail_dict["controls"]:
+        new_key = "tail_"+key
+        combined_dict["controls"][new_key] = tail_dict["controls"][key]
+
+    for key in tail_dict["wings"]:
+        new_key = "tail_"+key
+        combined_dict["wings"][new_key] = tail_dict["wings"][key]
+        combined_dict["wings"][new_key]["connect"]["dx"] += int(separation_vec[0])
+        combined_dict["wings"][new_key]["connect"]["dy"] += int(separation_vec[1])
+        combined_dict["wings"][new_key]["connect"]["dz"] += int(separation_vec[2])
+        for control_key in combined_dict["wings"][new_key]["control"]["mix"]:
+            combined_dict["wings"][new_key]["control"]["mix"] = {"tail_"+control_key:1.0}
+
+    dump_filename = "combo_input.json"
+    with open(dump_filename,'w') as dump_file_handle:
+        json.dump(combined_dict,dump_file_handle,indent=4)
+
+    trim(dump_filename)
+
+    return dump_filename
+
+def trim(config_filename):
+
+
 def run_perturbed_position(configs,pos,perturbation):
     perturb_forward = copy.deepcopy(configs)
     perturb_backward = copy.deepcopy(configs)
@@ -37,7 +77,7 @@ def run_perturbed_control(configs,control,perturbation):
     perturb_forward = copy.deepcopy(configs)
     perturb_backward = copy.deepcopy(configs)
 
-    control_key = "t_"+control
+    control_key = "tail_"+control
 
     perturb_forward["controls"][control_key]["deflection"] = trim_configs["controls"][control_key]["deflection"]+perturbation
     perturb_backward["controls"][control_key]["deflection"] = trim_configs["controls"][control_key]["deflection"]-perturbation
@@ -72,7 +112,7 @@ def get_forces_and_moments(filename,configs,r_CG):
     with open(filename, 'r') as coefs_file:
         coefs = json.load(coefs_file)
     
-    q_inf = 0.5*configs["condition"]["density"]*configs["condition"]["V_ref"]
+    q_inf = 0.5*configs["condition"]["density"]*configs["condition"]["velocity"]
     S_w = configs["reference"]["area"]
     l_ref_lon = configs["reference"]["longitudinal_length"]
     l_ref_lat = configs["reference"]["lateral_length"]
@@ -123,7 +163,13 @@ if __name__=="__main__":
     os.system("rm *backward*.json")
     os.system("rm *trim*.json")
 
-    trim_config_file = 'input.json'
+    # Define displacement of trailing aircraft
+    r_CG = np.array([-100,0,50])
+
+    # Combine trailing and leading configurations
+    trim_config_file = combine_and_trim("./IndividualModels/C130.json","./IndividualModels/ALTIUSjr.json",r_CG)
+
+    # Input configuration file
     with open(trim_config_file) as trim_file:
         trim_configs = json.load(trim_file)
 
@@ -132,12 +178,6 @@ if __name__=="__main__":
     # Specify increments
     dx = 0.1
     dtheta = 0.1
-
-    # Find displacement of trailing aircraft
-    r_CG = np.zeros(3)
-    r_CG[0] = trim_configs["trailer"]["CGx"]-trim_configs["plane"]["CGx"]
-    r_CG[1] = trim_configs["trailer"]["CGy"]-trim_configs["plane"]["CGy"]
-    r_CG[2] = trim_configs["trailer"]["CGz"]-trim_configs["plane"]["CGz"]
 
     # d/dx
     dFM_dx = calc_cent_diff(trim_configs,"dx",dx,r_CG)
