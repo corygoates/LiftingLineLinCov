@@ -41,7 +41,7 @@ def combine_and_trim(lead_filename,tail_filename,separation_vec):
     return dump_filename
 
 def trim(config_filename):
-
+    pass
 
 def run_perturbed_position(configs,pos,perturbation):
     perturb_forward = copy.deepcopy(configs)
