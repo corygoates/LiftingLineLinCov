@@ -1,0 +1,163 @@
+{
+    "run": {
+        "stl": "",
+        "pitchtrim": {"CL": 0.267, "Cm": 0.0},
+        "derivatives": "",
+        "forces": ""
+    },
+    "solver": {
+        "type": "nonlinear",
+        "convergence": 0.000000001,
+        "relaxation": 0.9
+    },
+    "plane": {
+        "name": "ALTIUSjr",
+        "CGx": 0,
+        "CGy": 0,
+        "CGz": 0
+    },
+    "reference": {
+        "area": 7.5,
+        "longitudinal_length": 1.25,
+        "lateral_length": 6.0
+    },
+    "condition": {
+        "units": "English",
+        "velocity": 205,
+        "density": 0.0023769,
+        "alpha": 3.1769850608575432,
+        "beta": 0,    
+        "omega": {
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0
+        },
+        "W":100
+    },
+    "controls": {
+        "elevator": {
+            "is_symmetric": 1,
+            "deflection": -3.1610586851589426
+        },
+        "rudder": {
+            "is_symmetric": 0,
+            "deflection": 0
+        },
+        "aileron": {
+            "is_symmetric": 0,
+            "deflection": 0
+        }
+    },
+    "airfoil_DB": "./../AirfoilDatabase",
+    "wings": {
+        "main_wing": {
+            "name": "main_wing",
+            "ID": 1,
+            "is_main": 1,
+            "side": "both",
+            "connect": {
+                "ID": 0,
+                "location": "root",
+                "dx": 0.0,
+                "dy": 0.0,
+                "dz": 0.0,
+                "yoffset": 0
+            },
+            "span": 3.0,
+            "sweep": 30.0,
+            "dihedral": 0,
+            "mounting_angle": 0,
+            "washout": 0,
+            "root_chord": 1.5,
+            "tip_chord": 1.0,
+            "airfoils": {
+                "NACA_2410": "",
+                "NACA_2410": ""
+            },
+            "grid": 40,
+            "control": {
+                "span_root": 0.5,
+                "span_tip": 0.8,
+                "chord_root": 0.25,
+                "chord_tip": 0.25,
+                "is_sealed": 1,
+                "mix": {
+                    "aileron": 1.0
+                }
+            }
+        },
+        "v_stab": {
+            "name": "v_stab",
+            "ID": 3,
+            "is_main": 0,
+            "side": "right",
+            "connect": {
+                "ID": 0,
+                "location": "root",
+                "dx": -8.0,
+                "dy": 0,
+                "dz": 0.1,
+                "yoffset": 0.0
+            },
+            "span": 1.0,
+            "sweep": 30.0,
+            "dihedral": 90,
+            "mounting_angle": 0,
+            "washout": 0,
+            "root_chord": 0.8,
+            "tip_chord": 0.8,
+            "airfoils": {
+                "NACA_0010": "",
+                "NACA_0010": ""
+            },
+            "grid": 40,
+            "control": {
+                "span_root": 0.0,
+                "span_tip": 1.0,
+                "chord_root": 0.5,
+                "chord_tip": 0.5,
+                "is_sealed": 1,
+                "mix": {
+                    "rudder": 1.0
+                }
+            }
+        },
+        "h_stab": {
+            "name": "h_stab",
+            "ID": 2,
+            "is_main": 0,
+            "side": "both",
+            "connect": {
+                "ID": 0,
+                "location": "root",
+                "dx": -8.0,
+                "dy": 0,
+                "dz": 0.2,
+                "yoffset": 0.0
+            },
+            "span": 1.0,
+            "sweep": 30.0,
+            "dihedral": 0.0,
+            "mounting_angle": -5.0,
+            "washout": 0.0,
+            "root_chord": 1,
+            "tip_chord": 1,
+            "airfoils": {
+                "NACA_0010": "",
+                "NACA_0010": ""
+            },
+            "grid": 40,
+            "control": {
+            	"has_control_surface": true,
+            	"span_root": 0,
+            	"span_tip": 1,
+            	"chord_root": 0.5,
+            	"chord_tip": 0.5,
+            	"is_sealed": 1,
+            	"mix": {
+            		"elevator": 1.0
+            	}
+            }
+        }
+    }
+}

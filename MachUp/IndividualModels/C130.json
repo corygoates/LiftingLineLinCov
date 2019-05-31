@@ -1,0 +1,168 @@
+{
+    "run": {
+        "pitchtrim": {"CL": 1.778, "Cm": 0.0},
+        "derivatives": "",
+        "forces": "",
+        "stl": ""
+    },
+    "solver": {
+        "type": "nonlinear",
+        "convergence": 0.000000001,
+        "relaxation": 0.9
+    },
+    "plane": {
+        "name": "C130",
+        "CGx": 0,
+        "CGy": 0,
+        "CGz": 0
+    },
+    "reference": {
+        "area": 1745,
+        "longitudinal_length": 13.16,
+        "lateral_length": 132.6
+    },
+    "condition": {
+        "units": "English",
+        "velocity": 205,
+        "density": 0.0023769,
+        "alpha": 13.916576226122110,
+        "beta": 0.0,    
+        "omega": {
+            "roll": 0.0,
+            "pitch": 0.0,
+            "yaw": 0.0
+        },
+        "W": 155000
+    },
+    "controls": {
+        "elevator": {
+            "is_symmetric": 1,
+            "deflection": -9.1601428594070651
+        },
+        "rudder": {
+            "is_symmetric": 0,
+            "deflection": 0
+        },
+        "aileron": {
+            "is_symmetric": 0,
+            "deflection": 0
+        },
+        "flaps": {
+            "is_symmetric": 1,
+            "deflection": 30
+        }
+    },
+    "airfoil_DB": "./../AirfoilDatabase",
+    "wings": {
+        "main_wing": {
+            "name": "main_wing",
+            "ID": 1,
+            "is_main": 1,
+            "side": "both",
+            "connect": {
+                "ID": 0,
+                "location": "root",
+                "dx": 2.5,
+                "dy": 0,
+                "dz": -7.4,
+                "yoffset": 0
+            },
+            "span": 66.3,
+            "sweep": 0.0,
+            "dihedral": 0.0,
+            "mounting_angle": 0.0,
+            "washout": 0.0,
+            "root_chord": 16.7642,
+            "tip_chord": 9.5556,
+            "airfoils": {
+                "NACA_2410": "",
+                "NACA_2410": ""
+            },
+            "grid": 40,
+            "control": {
+                "span_root": 0.5,
+                "span_tip": 0.8,
+                "chord_root": 0.25,
+                "chord_tip": 0.25,
+                "is_sealed": 1,
+                "mix": {
+                    "aileron": 1.0,
+                    "flaps": 1.0
+                }
+            }
+        },
+        "v_stab": {
+            "name": "v_stab",
+            "ID": 3,
+            "is_main": 0,
+            "side": "right",
+            "connect": {
+                "ID": 0,
+                "location": "root",
+                "dx": -42.0,
+                "dy": 0,
+                "dz": -7.4,
+                "yoffset": 0
+            },
+            "span": 22,
+            "sweep": 20,
+            "dihedral": 90,
+            "mounting_angle": 0,
+            "washout": 0,
+            "root_chord": 18,
+            "tip_chord": 5,
+            "airfoils": {
+                "NACA_0010": "",
+                "NACA_0010": ""
+            },
+            "grid": 40,
+            "control": {
+                "span_root": 0.0,
+                "span_tip": 1.0,
+                "chord_root": 0.25,
+                "chord_tip": 0.25,
+                "is_sealed": 1,
+                "mix": {
+                    "rudder": 1.0
+                }
+            }
+        },
+        "h_stab": {
+            "name": "h_stab",
+            "ID": 2,
+            "is_main": 0,
+            "side": "both",
+            "connect": {
+                "ID": 0,
+                "location": "root",
+                "dx": -44.5,
+                "dy": 0,
+                "dz": -7.4,
+                "yoffset": 0
+            },
+            "span": 26.35,
+            "sweep": 7,
+            "dihedral": 0,
+            "mounting_angle": -1.5,
+            "washout": 0,
+            "root_chord": 14.84293,
+            "tip_chord": 5.19502,
+            "airfoils": {
+                "NACA_0010": "",
+                "NACA_0010": ""
+            },
+            "grid": 40,
+            "control": {
+            	"has_control_surface": true,
+            	"span_root": 0,
+            	"span_tip": 1,
+            	"chord_root": 0.5,
+            	"chord_tip": 0.5,
+            	"is_sealed": 1,
+            	"mix": {
+            		"elevator": 1.0
+            	}
+            }
+        }
+    }
+}
