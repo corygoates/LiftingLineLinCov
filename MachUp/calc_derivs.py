@@ -12,6 +12,7 @@ class TailingScenario:
         self.tail_filename = tail_filename
         self.dx = kwargs.get("dx",0.1)
         self.dtheta = kwargs.get("dtheta",0.1)
+        self.grid = kwargs.get("grid",40)
 
         self.combine()
 
@@ -62,6 +63,9 @@ class TailingScenario:
             for control_key in self.combined_dict["wings"][new_key]["control"]["mix"]:
                 self.combined_dict["wings"][new_key]["control"]["mix"] = {"tail_"+control_key:1.0}
 
+        for wing in self.combined_dict["wings"]:
+            self.combined_dict["wings"][wing]["grid"] = self.grid
+
         # Create new .json file
         self.untrimmed_filename = "combined_untrimmed.json"
         with open(self.untrimmed_filename,'w') as dump_file_handle:
@@ -108,7 +112,7 @@ class TailingScenario:
             R_m = np.asscalar(lead_FM[1,1])
         return R_L,R_m
 
-    def apply_separation_and_trim(self,separation_vec):
+    def apply_separation_and_trim(self,separation_vec,iterations=1):
         """Separates the two aircraft according to separation_vec and trims both.
         This will leave alpha and beta as 0.0, instead trimming using mounting
         angles."""
@@ -124,16 +128,17 @@ class TailingScenario:
         with open(self.trimmed_filename,'w') as dump_file_handle:
             json.dump(self.trimmed_dict,dump_file_handle,indent=4)
 
-        airplanes = ["lead","tail"]
-        for airplane in airplanes:
-            if airplane == "lead":
-                alpha_init = self.lead_dict["condition"]["alpha"]
-            else:
-                alpha_init = self.tail_dict["condition"]["alpha"]
+        for i in range(iterations):
+            airplanes = ["lead","tail"]
+            for airplane in airplanes:
+                if airplane == "lead":
+                    alpha_init = self.lead_dict["condition"]["alpha"]
+                else:
+                    alpha_init = self.tail_dict["condition"]["alpha"]
 
-            de_init = self.trimmed_dict["controls"][airplane+"_elevator"]["deflection"]
+                de_init = self.trimmed_dict["controls"][airplane+"_elevator"]["deflection"]
 
-            _ = opt.root(self.get_trim_residuals,[alpha_init,de_init],args=(airplane,))
+                _ = opt.root(self.get_trim_residuals,[alpha_init,de_init],args=(airplane,))
 
     def run_perturbation(self,wrt):
         """Perturbs the aircraft with respect to wrt."""
@@ -153,9 +158,44 @@ class TailingScenario:
             perturb_backward["controls"][control_key]["deflection"] = self.trimmed_dict["controls"][control_key]["deflection"]-self.dtheta
         
         elif wrt in "dpdqdr": # Orientation
-            for key in self.trimmed_dict["wings"]:
-                if "tail" in key:
-                    pass
+            for wing in self.trimmed_dict["wings"]:
+                if "tail" in wing:
+                    if wrt == "dq":
+                        x0 = copy.copy(self.trimmed_dict["wings"][wing]["connect"]["dx"])
+                        z0 = copy.copy(self.trimmed_dict["wings"][wing]["connect"]["dz"])
+                        x0 -= self.r[0]
+                        z0 -= self.r[2]
+                        C = np.cos(np.radians(self.dtheta))
+                        S = np.sin(np.radians(self.dtheta))
+                        x1 = x0*C+z0*S
+                        z1 = z0*C-x0*S
+                        x1 += self.r[0]
+                        z1 += self.r[2]
+                        perturb_forward["wings"][wing]["connect"]["dx"] = copy.copy(x1)
+                        perturb_forward["wings"][wing]["connect"]["dz"] = copy.copy(z1)
+
+                        if "v" in wing: # Vertical stabilizer
+                            perturb_forward["wings"][wing]["sweep"] += self.dtheta
+                        else: # Horizontal surface
+                            perturb_forward["wings"][wing]["mounting_angle"] += self.dtheta
+
+                        x0 = copy.copy(self.trimmed_dict["wings"][wing]["connect"]["dx"])
+                        z0 = copy.copy(self.trimmed_dict["wings"][wing]["connect"]["dz"])
+                        x0 -= self.r[0]
+                        z0 -= self.r[2]
+                        C = np.cos(np.radians(-self.dtheta))
+                        S = np.sin(np.radians(-self.dtheta))
+                        x1 = x0*C+z0*S
+                        z1 = z0*C-x0*S
+                        x1 += self.r[0]
+                        z1 += self.r[2]
+                        perturb_backward["wings"][wing]["connect"]["dx"] = copy.copy(x1)
+                        perturb_backward["wings"][wing]["connect"]["dz"] = copy.copy(z1)
+
+                        if "v" in wing: # Vertical stabilizer
+                            perturb_backward["wings"][wing]["sweep"] -= self.dtheta
+                        else: # Horizontal surface
+                            perturb_backward["wings"][wing]["mounting_angle"] -= self.dtheta
 
         forward_file = wrt+"_forward.json"
         with open(forward_file, 'w', newline='\r\n') as dump_file:
@@ -233,6 +273,9 @@ class TailingScenario:
         # d/dz
         dFM_dz = self.calc_cent_diff("dz")
 
+        # d/dq
+        dFM_dq = self.calc_cent_diff("dq")
+
         # d/dda
         dFM_dda = self.calc_cent_diff("aileron")*180/np.pi
 
@@ -245,6 +288,10 @@ class TailingScenario:
         print("\nDerivatives w.r.t. x:\n{0}".format(dFM_dx))
         print("\nDerivatives w.r.t. y:\n{0}".format(dFM_dy))
         print("\nDerivatives w.r.t. z:\n{0}".format(dFM_dz))
+
+        print("\nDerivatives w.r.t. p:\n{0}".format("-"))
+        print("\nDerivatives w.r.t. q:\n{0}".format(dFM_dq))
+        print("\nDerivatives w.r.t. r:\n{0}".format("-"))
 
         print("\nDerivatives w.r.t. da:\n{0}".format(dFM_dda))
         print("\nDerivatives w.r.t. de:\n{0}".format(dFM_dde))
@@ -267,6 +314,6 @@ if __name__=="__main__":
     r_CG = np.array([-200,0,50])
 
     # Run scenario
-    situ = TailingScenario("./IndividualModels/C130.json","./IndividualModels/ALTIUSjr.json")
-    situ.apply_separation_and_trim([-200.0,0.0,50.0])
+    situ = TailingScenario("./IndividualModels/C130.json","./IndividualModels/ALTIUSjr.json",grid=40)
+    situ.apply_separation_and_trim([-200.0,0.0,50.0],iterations=1)
     situ.run()
