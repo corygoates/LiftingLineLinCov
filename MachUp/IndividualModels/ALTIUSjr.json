@@ -25,7 +25,7 @@
         "units": "English",
         "velocity": 205,
         "density": 0.0023769,
-        "alpha": 3.1769850608575432,
+        "alpha": 1.5820298093009288,
         "beta": 0,    
         "omega": {
             "roll": 0.0,
@@ -37,7 +37,7 @@
     "controls": {
         "elevator": {
             "is_symmetric": 1,
-            "deflection": -3.1610586851589426
+            "deflection": 5.6883770948250074
         },
         "rudder": {
             "is_symmetric": 0,
@@ -64,7 +64,7 @@
                 "yoffset": 0
             },
             "span": 3.0,
-            "sweep": 30.0,
+            "sweep": 0.0,
             "dihedral": 0,
             "mounting_angle": 0,
             "washout": 0,
@@ -100,7 +100,7 @@
                 "yoffset": 0.0
             },
             "span": 1.0,
-            "sweep": 30.0,
+            "sweep": 0.0,
             "dihedral": 90,
             "mounting_angle": 0,
             "washout": 0,
@@ -136,7 +136,7 @@
                 "yoffset": 0.0
             },
             "span": 1.0,
-            "sweep": 30.0,
+            "sweep": 0.0,
             "dihedral": 0.0,
             "mounting_angle": -5.0,
             "washout": 0.0,
