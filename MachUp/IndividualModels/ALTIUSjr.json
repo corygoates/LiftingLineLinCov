@@ -88,7 +88,7 @@
         },
         "v_stab": {
             "name": "v_stab",
-            "ID": 3,
+            "ID": 1,
             "is_main": 0,
             "side": "right",
             "connect": {
@@ -96,30 +96,31 @@
                 "location": "root",
                 "dx": -8.0,
                 "dy": 0,
-                "dz": 0.1,
+                "dz": 0.2,
                 "yoffset": 0.0
             },
             "span": 1.0,
             "sweep": 0.0,
-            "dihedral": 90,
-            "mounting_angle": 0,
-            "washout": 0,
-            "root_chord": 0.8,
-            "tip_chord": 0.8,
+            "dihedral": 90.0,
+            "mounting_angle": 0.0,
+            "washout": 0.0,
+            "root_chord": 1,
+            "tip_chord": 1,
             "airfoils": {
                 "NACA_0010": "",
                 "NACA_0010": ""
             },
             "grid": 40,
             "control": {
-                "span_root": 0.0,
-                "span_tip": 1.0,
-                "chord_root": 0.5,
-                "chord_tip": 0.5,
-                "is_sealed": 1,
-                "mix": {
-                    "rudder": 1.0
-                }
+            	"has_control_surface": true,
+            	"span_root": 0,
+            	"span_tip": 1,
+            	"chord_root": 0.5,
+            	"chord_tip": 0.5,
+            	"is_sealed": 1,
+            	"mix": {
+            		"rudder": 1.0
+            	}
             }
         },
         "h_stab": {
