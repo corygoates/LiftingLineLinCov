@@ -32,7 +32,7 @@ class TailingScenario:
         Defaults to 0.01.
 
     grid (int, optional):
-        Number of control points to be used on each lifting surface in numerical lifting line. Defaults to 40.
+        Number of control points to be used on each lifting surface in numerical lifting line. Defaults to 100.
     """
 
     def __init__(self,lead_filename,tail_filename,**kwargs):
@@ -40,11 +40,11 @@ class TailingScenario:
         self.tail_filename = tail_filename
         self.dx = kwargs.get("dx",0.01)
         self.dtheta = kwargs.get("dtheta",0.01)
-        self.grid = kwargs.get("grid",40)
+        self.grid = kwargs.get("grid",100)
 
         self.FM_names = ["Fx","Fy","Fz","Mx","My","Mz"]
-        self.state_names = ["x","y","z","phi","theta","psi"]
-        self.control_names = ["aileron","elevator","rudder"]
+        self.state_names = ["x","y","z","phi","theta"]#,"psi"]
+        self.control_names = ["aileron","elevator"]#,"rudder"]
 
         self._combine()
 
@@ -87,7 +87,7 @@ class TailingScenario:
 
         # Copy lead surfaces
         for key in self.lead_dict["wings"]:
-            if "v" in key: # Skip vertical stabilizers for now
+            if "v" in key: # Skip vertical stabilizers for now to avoid grid convergence issues
                 continue
             new_key = "lead_"+key
             self.combined_dict["wings"][new_key] = copy.copy(self.lead_dict["wings"][key])
@@ -102,7 +102,7 @@ class TailingScenario:
 
         # For tailing lifting surfaces, split double surfaces into two surfaces
         for key in self.tail_dict["wings"]:
-            if "v" in key: # Skip vertical stabilizers for now
+            if "v" in key: # Skip vertical stabilizers for now to avoid grid convergence issues
                 continue
             new_key = "tail_"+key
 
@@ -129,12 +129,8 @@ class TailingScenario:
             self.combined_dict["wings"][wing]["grid"] = self.grid
 
     def _apply_new_grid(self,grid):
-        """Sets the number of grid points for each lifting surface."""
+        """Sets the number of grid points for each lifting surface. Will not alter the original configuration."""
         self.grid = grid
-
-        # Apply to base combined dict
-        for wing in self.combined_dict["wings"]:
-            self.combined_dict["wings"][wing]["grid"] = self.grid
 
         if hasattr(self,"trimmed_dict"):
             # Apply to trimmed dict
@@ -196,7 +192,7 @@ class TailingScenario:
         # Apply angle of attack and elevator deflection and run
         self._apply_alpha_de(alpha,de,airplane)
         self._run_machup(self.trimmed_filename)
-        lead_FM,tail_FM = self._get_forces_and_moments(self.trimmed_filename)
+        lead_FM,tail_FM = self._get_forces_and_moments(self.trimmed_filename) # self.r does not need to be updated because position is not being perturbed
 
         # Calculate residuals
         if airplane == "tail":
@@ -208,24 +204,33 @@ class TailingScenario:
 
         return np.asarray([R_L,R_m])
 
-    def _trim(self,alpha_init,de_init,airplane,convergence):
-        """Uses Newton's method to solve for trim."""
-        alpha0 = copy.deepcopy(alpha_init)
-        de0 = copy.deepcopy(de_init)
-
-        # Calculate derivatives and residuals
-        # This doesn't use self._calc_central_diff() in order to run faster with high grid resolutions
+    def _get_residuals_and_derivs(self,alpha,de,airplane):
+        """Returns the residuals and derivatives for the given trim state."""
+        # This doesn't use self._calc_central_diff() in order to take full advantage of multiprocessing (5 at a time instead of 3 and then 2)
+        # Apply to multiprocessing
         arg_list = [(airplane,{"dtheta":self.dtheta}),(airplane,{"dtheta":-self.dtheta}),(airplane,{"elevator":self.dtheta}),(airplane,{"elevator":-self.dtheta})]
         with mp.Pool() as pool:
-            R_get = pool.apply_async(self._get_trim_residuals,(alpha_init,de_init,airplane))
+            R_get = pool.apply_async(self._get_trim_residuals,(alpha,de,airplane))
             FM_get = pool.map_async(self._get_perturbed_forces_and_moments,arg_list)
             FM = FM_get.get()
             R = R_get.get()
 
+        # Calculate central difference
         h = 2*self.dtheta
         derivs = []
         derivs.append((FM[0]-FM[1])/h)
         derivs.append((FM[2]-FM[3])/h)
+
+        return R, derivs
+
+    def _trim(self,alpha_init,de_init,airplane,convergence):
+        """Uses Newton's method to solve for trim."""
+        alpha0 = copy.deepcopy(alpha_init)
+        de0 = copy.deepcopy(de_init)
+        print("\nTrimming "+airplane+" aircraft.")
+
+        # Calculate derivatives and residuals
+        R, derivs = self._get_residuals_and_derivs(alpha0,de0,airplane)
 
         # Output progress
         print("Trim residuals:\n    Fz: {0}\n    My: {1}".format(R[0],R[1]))
@@ -245,17 +250,7 @@ class TailingScenario:
             de1 = np.asscalar(de0-corrector[1])
 
             # Calculate derivatives and residuals
-            arg_list = [(airplane,{"dtheta":self.dtheta}),(airplane,{"dtheta":-self.dtheta}),(airplane,{"elevator":self.dtheta}),(airplane,{"elevator":-self.dtheta})]
-            with mp.Pool() as pool:
-                R_get = pool.apply_async(self._get_trim_residuals,(alpha1,de1,airplane))
-                FM_get = pool.map_async(self._get_perturbed_forces_and_moments,arg_list)
-                FM = FM_get.get()
-                R = R_get.get()
-
-            h = 2*self.dtheta
-            derivs = []
-            derivs.append((FM[0]-FM[1])/h)
-            derivs.append((FM[2]-FM[3])/h)
+            R, derivs = self._get_residuals_and_derivs(alpha1,de1,airplane)
 
             # Output progress
             print("Trim residuals:\n    Fz: {0}\n    My: {1}".format(R[0],R[1]))
@@ -263,11 +258,10 @@ class TailingScenario:
             # Update for next iteration
             alpha0 = alpha1
             de0 = de1
-            sp.run(["rm","*perturbed*"])
 
         self._apply_alpha_de(alpha0,de0,airplane) # Because this was done in another process
 
-    def _apply_separation_and_trim(self,separation_vec,iterations=1,grid=40,convergence=1e-8,export_stl=False):
+    def _apply_separation_and_trim(self,separation_vec,iterations=1,grid=100,convergence=1e-8,export_stl=False):
         """Separates the two aircraft according to separation_vec and trims both.
         This will leave alpha and beta as 0.0, instead trimming using mounting
         angles. This will first trim the leading aircraft, then the tailing aircraft.
@@ -444,7 +438,7 @@ class TailingScenario:
         # Create descriptive file tag
         tag_list = []
         for key in perturbations:
-            tag_list.append(key+str(perturbations[key]))
+            tag_list.append(key+"{:.2f}".format(perturbations[key]))
         tag = "".join(tag_list)
 
         # Apply specified perturbations
@@ -467,7 +461,7 @@ class TailingScenario:
 
         # Store and run perturbed dict
         perturbed_file = tag+"perturbed.json"
-        with open(perturbed_file, 'w', newline='\r\n') as dump_file:
+        with open(perturbed_file, 'w') as dump_file:
             json.dump(perturbed,dump_file,indent=4)
 
         self._run_machup(perturbed_file)
@@ -518,9 +512,29 @@ class TailingScenario:
         """Perturbs the specified aircraft from trim and extracts the forces and moments."""
         airplane,perturbations = args
 
-        # Perturb and extract forces and moments
+        # Perturb
         filename = self._run_perturbation(airplane,perturbations)
+
+        # Update separation vector according to the perturbations
+        for key in perturbations:
+            if key == "dx":
+                self.r[0] += perturbations[key]
+            elif key == "dy":
+                self.r[1] += perturbations[key]
+            elif key == "dz":
+                self.r[2] += perturbations[key]
+
+        # Extract forces and moments
         lead_FM,tail_FM = self._get_forces_and_moments(filename)
+
+        # Reset separation vector
+        for key in perturbations:
+            if key == "dx":
+                self.r[0] -= perturbations[key]
+            elif key == "dy":
+                self.r[1] -= perturbations[key]
+            elif key == "dz":
+                self.r[2] -= perturbations[key]
 
         # Clean up Machup files
         sp.run(["rm",filename])
@@ -548,9 +562,14 @@ class TailingScenario:
 
         return derivs
 
-    def run_derivs(self,separation_vec,trim_iterations=2,grid=40,export_stl=False):
+    def run_derivs(self,separation_vec,trim_iterations=2,grid=100,export_stl=False,trim=True):
         """Find the matrix of derivatives of aerodynamic forces and moments with respect to position, orientation, and control input."""
-        self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=grid,export_stl=export_stl)
+        if trim:
+            self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=grid,export_stl=export_stl)
+        else:
+            self._apply_new_grid(grid) # Just to make sure
+
+        print("\nCalculating derivatives.")
 
         # Distribute calculations among processes
         deriv_list = []
@@ -570,13 +589,19 @@ class TailingScenario:
         self.F_pbar = np.asarray(F_pbar_u[:6])
         self.F_u = np.asarray(F_pbar_u[6:])
 
-    def plot_derivative_convergence(self,grids,separation_vec,trim_iterations=2):
+    def plot_derivative_convergence(self,grids,separation_vec,trim_iterations=2,trim_once=True,trim_grid=100):
         state_derivs = []
         control_derivs = []
 
         # Run derivatives for each grid size
+        if trim_once:
+            self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=trim_grid)
         for grid in grids:
-            situ.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid)
+            print("\nCalculating derivatives at a grid size of {0}".format(grid))
+            if trim_once:
+                situ.run_derivs(separation_vec,grid=grid,trim=False)
+            else:
+                situ.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid)
             state_derivs.append(situ.F_pbar)
             control_derivs.append(situ.F_u)
 
@@ -584,7 +609,7 @@ class TailingScenario:
         control_derivs = np.asarray(control_derivs)
 
         # Create plot folder
-        plot_dir = "./ConvergencePlots/"
+        plot_dir = "./DerivativeConvergencePlots/"
         if not os.path.exists(plot_dir):
             os.mkdir(plot_dir)
 
@@ -598,7 +623,7 @@ class TailingScenario:
                 plt.xlabel("Grid Points")
                 deriv_name = "d"+self.FM_names[j]+"/d"+self.state_names[i]
                 plt.ylabel(deriv_name)
-                plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight')
+                plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight',format='svg')
                 plt.close()
                 
         # Control derivatives
@@ -610,7 +635,7 @@ class TailingScenario:
                 plt.xlabel("Grid Points")
                 deriv_name = "d"+self.FM_names[j]+"/dd"+self.control_names[i][0]
                 plt.ylabel(deriv_name)
-                plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight')
+                plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight',format='svg')
                 plt.close()
 
     def _get_normal_perturbations(self,dispersions,sigma):
@@ -623,7 +648,7 @@ class TailingScenario:
 
         return perturbations
 
-    def run_monte_carlo(self,separation_vec,airplane,N_samples,dispersions,grid=40,sigma=3):
+    def run_monte_carlo(self,separation_vec,airplane,N_samples,dispersions,grid=100,sigma=3):
         """Runs a Monte Carlo simulation to determine the dispersion of forces and moments."""
         self._apply_separation_and_trim(separation_vec,iterations=2,grid=grid)
 
@@ -638,7 +663,7 @@ class TailingScenario:
         self.FM_dispersions = np.std(FM_samples,axis=0)
         end_time = time.time()
 
-        # Plot dispersions
+        # Plot dispersions in each force and moment
         plot_dir = "./MCDispersions"
         if not os.path.exists(plot_dir):
             os.mkdir(plot_dir)
@@ -652,7 +677,7 @@ class TailingScenario:
                 
                 # Plot histogram
                 x = FM_samples[:,i,j].flatten()
-                plt.hist(x,density=True,label=name)
+                plt.hist(x,density=True,label=name,color="gray",lw=0)
 
                 # Plot normal distribution
                 x_space = np.linspace(min(x),max(x),100)
@@ -674,18 +699,18 @@ class TailingScenario:
                 # Format and save
                 plt.xlabel(name)
                 plt.legend()
-                plt.savefig(plot_dir+"/"+name)
+                plt.savefig(plot_dir+"/"+name,format='svg')
                 plt.close()
 
         return end_time-start_time
 
-    def run_lin_cov(self,separation_vec,airplane,dispersions,trim_iterations=2,grid=40):
+    def run_lin_cov(self,separation_vec,airplane,dispersions,trim_iterations=2,grid=100):
         """Runs linear covariance analysis on the specified airplane using the given dispersions."""
 
         # Calculate derivatives
         self.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid)
 
-    def plot_perturbation_convergence(self,separation_vec,airplane,perturbation,grids,trim_iterations=2,trim_once=True):
+    def plot_perturbation_convergence(self,separation_vec,airplane,perturbation,grids,trim_iterations=2,trim_once=True,trim_grid=100):
         """Plots the grid convergence of the forces and moments generated by a given perturbation."""
 
         # Run perturbation at each grid level
@@ -695,10 +720,10 @@ class TailingScenario:
 
         # If only trimming once
         if trim_once:
-            self._apply_separation_and_trim(separation_vec,iterations=trim_iterations)
+            self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=trim_grid)
         for grid in grids:
             self._apply_new_grid(grid)
-            
+
             # If trimming at each grid level
             if not trim_once:
                 self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=grid)
@@ -707,16 +732,20 @@ class TailingScenario:
             alpha_lead_list.append(self.trimmed_dict["angles_of_attack"]["lead"])
             alpha_tail_list.append(self.trimmed_dict["angles_of_attack"]["tail"])
 
-        # Plot
+        # Create directories
         var = list(perturbation.keys())[0]
+        parent_dir = "./FMConvergencePlots"
+        if not os.path.exists(parent_dir):
+            os.mkdir(parent_dir)
         if trim_once:
-            plot_dir = "./ForceAndMomentConvergencePlotsTrimmedOnceWRT"+var
+            plot_dir = parent_dir+"/TrimmedOnceWRT"+var
         else:
-            plot_dir = "./ForceAndMomentConvergencePlotsTrimmedAtEachWRT"+var
+            plot_dir = parent_dir+"/TrimmedAtEachWRT"+var
 
         if not os.path.exists(plot_dir):
             os.mkdir(plot_dir)
 
+        # Plot forces and moments as a function of grid resolution
         FM = np.asarray(FM_list)
         shape = FM[0].shape
         for i in range(shape[0]):
@@ -726,26 +755,27 @@ class TailingScenario:
                 name = self.FM_names[i*shape[1]+j]
                 plt.xlabel("Grid Points")
                 plt.ylabel(name)
-                plt.savefig(plot_dir+"/"+name)
+                plt.savefig(plot_dir+"/"+name,format='svg')
+                plt.close()
 
         # Angles of attack
         plt.figure()
-        plt.plot(grids,alpha_lead_list,"kx--")
+        plt.semilogx(grids,alpha_lead_list,"kx--")
         plt.xlabel("Grid Points")
         plt.ylabel("Lead Angle of Attack")
-        plt.savefig(plot_dir+"/LeadAlpha")
+        plt.savefig(plot_dir+"/LeadAlpha",format='svg')
+        plt.close()
 
         plt.figure()
-        plt.plot(grids,alpha_tail_list,"kx--")
+        plt.semilogx(grids,alpha_tail_list,"kx--")
         plt.xlabel("Grid Points")
         plt.ylabel("Tail Angle of Attack")
-        plt.savefig(plot_dir+"/TailAlpha")
+        plt.savefig(plot_dir+"/TailAlpha",format='svg')
+        plt.close()
 
 if __name__=="__main__":
 
     # Initialize
-    sp.run(["rm","*forward*"])
-    sp.run(["rm","*backward*"])
     sp.run(["rm","*perturbed*"])
     sp.run(["rm","*trim*"])
 
@@ -757,48 +787,23 @@ if __name__=="__main__":
     tail = "./IndividualModels/ALTIUSjr.json"
     situ = TailingScenario(lead,tail)
 
-    # Run sensitivities
-    #situ.run_derivs(r_CG,export_stl=True)
-    #print("\nFp:\n{0}".format(situ.F_pbar))
-    #print("\nFu:\n{0}".format(situ.F_u))
+    # Run sensitivities at the trim state
+    situ.run_derivs(r_CG,export_stl=True)
+    print("\nFp:\n{0}".format(situ.F_pbar))
+    print("\nFu:\n{0}".format(situ.F_u))
 
     # Check force and moment grid convergence
     grid_floats = np.logspace(1,2.5,10)
     grids = list(map(int,grid_floats))
-    perturb = {
-        "dtheta": 0.1
-    }
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids,trim_once=False)
-
-    perturb = {
-        "dphi": 0.1
-    }
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids,trim_once=False)
-
-    perturb = {
-        "dx": 0.1
-    }
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids,trim_once=False)
-
-    perturb = {
-        "dy": 0.1
-    }
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids,trim_once=False)
-
-    perturb = {
-        "dz": 0.1
-    }
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
-    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids,trim_once=False)
+    perturbings = [{"dtheta": 0.1},{"dphi": 0.1},{"dx": 0.1},{"dy": 0.1},{"dz": 0.1}]
+    for perturb in perturbings:
+        situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
 
     # Check grid convergence of derivatives
     situ.plot_derivative_convergence(grids,r_CG)
 
     # Run Monte Carlo simulation
+    # We're ignoring possible perturbations in yaw and rudder deflection
     dispersions = {
         "dx": 5.0,
         "dy": 5.0,
@@ -808,9 +813,9 @@ if __name__=="__main__":
         "aileron": 5*np.pi/180,
         "elevator": 5*np.pi/180
     }
-    #MC_exec_time = situ.run_monte_carlo(r_CG,"tail",1000,dispersions)
-    #print("Monte Carlo took {0} s to run.".format(MC_exec_time))
-    #print(situ.FM_dispersions)
+    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",1000,dispersions)
+    print("Monte Carlo took {0} s to run.".format(MC_exec_time))
+    print(situ.FM_dispersions)
 
     # Run LinCov
     #situ.run_lin_cov(r_CG,"tail",dispersions)
