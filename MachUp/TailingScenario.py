@@ -31,8 +31,9 @@ class TailingScenario:
         Increment to be used in calculating derivatives with respect to orientation or control deflection.
         Defaults to 0.01.
 
-    grid (int, optional):
+    default_grid (int, optional):
         Number of control points to be used on each lifting surface in numerical lifting line. Defaults to 100.
+        Can be specified for each function called, but this default will be used if no specification is made.
     """
 
     def __init__(self,lead_filename,tail_filename,**kwargs):
@@ -40,7 +41,8 @@ class TailingScenario:
         self.tail_filename = tail_filename
         self.dx = kwargs.get("dx",0.01)
         self.dtheta = kwargs.get("dtheta",0.01)
-        self.grid = kwargs.get("grid",100)
+        self.default_grid = kwargs.get("default_grid",100)
+        self.grid = copy.deepcopy(self.default_grid)
 
         self.FM_names = ["Fx","Fy","Fz","Mx","My","Mz"]
         self.state_names = ["x","y","z","phi","theta"]#,"psi"]
@@ -128,8 +130,12 @@ class TailingScenario:
         for wing in self.combined_dict["wings"]:
             self.combined_dict["wings"][wing]["grid"] = self.grid
 
-    def _apply_new_grid(self,grid):
+    def _apply_new_grid(self,grid=None):
         """Sets the number of grid points for each lifting surface. Will not alter the original configuration."""
+
+        # Assign default grid if needs be
+        if grid is None:
+            grid = self.default_grid
         self.grid = grid
 
         if hasattr(self,"trimmed_dict"):
@@ -261,12 +267,16 @@ class TailingScenario:
 
         self._apply_alpha_de(alpha0,de0,airplane) # Because this was done in another process
 
-    def _apply_separation_and_trim(self,separation_vec,iterations=1,grid=100,convergence=1e-8,export_stl=False):
+    def _apply_separation_and_trim(self,separation_vec,iterations=1,grid=None,convergence=1e-8,export_stl=False):
         """Separates the two aircraft according to separation_vec and trims both.
         This will leave alpha and beta as 0.0, instead trimming using mounting
         angles. This will first trim the leading aircraft, then the tailing aircraft.
         This process can be repeated for finer trim results using the iterations
         parameter."""
+
+        # Assign default grid if needs be
+        if grid is None:
+            grid = self.default_grid
 
         self._apply_new_grid(grid)
 
@@ -562,8 +572,12 @@ class TailingScenario:
 
         return derivs
 
-    def run_derivs(self,separation_vec,trim_iterations=2,grid=100,export_stl=False,trim=True):
+    def run_derivs(self,separation_vec,trim_iterations=2,grid=None,export_stl=False,trim=True):
         """Find the matrix of derivatives of aerodynamic forces and moments with respect to position, orientation, and control input."""
+
+        # Assign default grid if needs be
+        if grid is None:
+            grid = self.default_grid
         if trim:
             self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=grid,export_stl=export_stl)
         else:
@@ -580,18 +594,37 @@ class TailingScenario:
 
         arg_list = [(deriv,"tail") for deriv in deriv_list]
         with mp.Pool() as pool:
-            F_pbar_u = pool.map(self._calc_cent_diff,arg_list)
+            F_xc = pool.map(self._calc_cent_diff,arg_list)
 
         # Format derivative matrices
-        for i in range(len(F_pbar_u)):
-            F_pbar_u[i] = F_pbar_u[i].flatten()
+        for i in range(len(F_xc)):
+            F_xc[i] = F_xc[i].flatten()
 
-        self.F_pbar = np.asarray(F_pbar_u[:6])
-        self.F_u = np.asarray(F_pbar_u[6:])
+        num_states = len(self.state_names)
+        print(num_states)
 
-    def plot_derivative_convergence(self,grids,separation_vec,trim_iterations=2,trim_once=True,trim_grid=100):
-        state_derivs = []
-        control_derivs = []
+        self.Q_x = np.asarray(F_xc[:num_states][:3]) # df/dx
+        self.Q_u = np.asarray(F_xc[num_states:][:3]) # df/du
+        print(self.Q_x)
+        print(self.Q_u)
+
+        self.R_x = np.asarray(F_xc[:num_states][3:]) # dm/dx
+        self.R_u = np.asarray(F_xc[num_states:][3:]) # dm/du
+        print(self.R_x)
+        print(self.R_u)
+
+    def plot_derivative_convergence(self,grids,separation_vec,trim_iterations=2,trim_once=True,trim_grid=None):
+        """Plots each derivative as a function of grid points used to show convergence."""
+
+        # Assign default grid if needs be
+        if trim_grid is None:
+            trim_grid = self.default_grid
+
+        # Initialize storage lists
+        Q_x_list = []
+        Q_u_list = []
+        R_x_list = []
+        R_u_list = []
 
         # Run derivatives for each grid size
         if trim_once:
@@ -602,11 +635,16 @@ class TailingScenario:
                 situ.run_derivs(separation_vec,grid=grid,trim=False)
             else:
                 situ.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid)
-            state_derivs.append(situ.F_pbar)
-            control_derivs.append(situ.F_u)
 
-        state_derivs = np.asarray(state_derivs)
-        control_derivs = np.asarray(control_derivs)
+            Q_x_list.append(self.Q_x)
+            Q_u_list.append(self.Q_u)
+            R_x_list.append(self.R_x)
+            R_u_list.append(self.R_u)
+
+        Q_x = np.asarray(Q_x_list)
+        Q_u = np.asarray(Q_u_list)
+        R_x = np.asarray(R_x_list)
+        R_u = np.asarray(R_u_list)
 
         # Create plot folder
         plot_dir = "./DerivativeConvergencePlots/"
@@ -614,104 +652,60 @@ class TailingScenario:
             os.mkdir(plot_dir)
 
         # Plot convergence results
-        # State derivatives
-        shape = state_derivs[0].shape
+        # Force derivatives with respect to state
+        shape = Q_x[0].shape
         for i in range(shape[0]):
             for j in range(shape[1]):
                 plt.figure()
-                plt.semilogx(grids,state_derivs[:,i,j],'kx--')
+                plt.semilogx(grids,Q_x[:,i,j],'kx--')
                 plt.xlabel("Grid Points")
                 deriv_name = "d"+self.FM_names[j]+"/d"+self.state_names[i]
                 plt.ylabel(deriv_name)
                 plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight',format='svg')
                 plt.close()
-                
-        # Control derivatives
-        shape = control_derivs[0].shape
+
+        # Moment derivatives with respect to state
+        shape = R_x[0].shape
         for i in range(shape[0]):
             for j in range(shape[1]):
                 plt.figure()
-                plt.semilogx(grids,control_derivs[:,i,j],'kx--')
+                plt.semilogx(grids,R_x[:,i,j],'kx--')
+                plt.xlabel("Grid Points")
+                deriv_name = "d"+self.FM_names[j+3]+"/d"+self.state_names[i]
+                plt.ylabel(deriv_name)
+                plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight',format='svg')
+                plt.close()
+                
+        # Force derivatives with respect to controls
+        shape = Q_u[0].shape
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                plt.figure()
+                plt.semilogx(grids,Q_u[:,i,j],'kx--')
                 plt.xlabel("Grid Points")
                 deriv_name = "d"+self.FM_names[j]+"/dd"+self.control_names[i][0]
                 plt.ylabel(deriv_name)
                 plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight',format='svg')
                 plt.close()
-
-    def _get_normal_perturbations(self,dispersions,sigma):
-        """Generates a dict of normally distributed perturbations in the variables specified by dispersions."""
-        perturbations = {}
-
-        # Get normally distributed variable for each perturbation
-        for key in dispersions:
-            perturbations[key] = np.random.normal(0.0,dispersions[key]/sigma)
-
-        return perturbations
-
-    def run_monte_carlo(self,separation_vec,airplane,N_samples,dispersions,grid=100,sigma=3):
-        """Runs a Monte Carlo simulation to determine the dispersion of forces and moments."""
-        self._apply_separation_and_trim(separation_vec,iterations=2,grid=grid)
-
-        # Apply to multiprocessing
-        start_time = time.time()
-        arg_list = [(airplane,self._get_normal_perturbations(dispersions,sigma)) for i in range(N_samples)]
-        with mp.Pool() as pool:
-            FM_samples = pool.map(self._get_perturbed_forces_and_moments,arg_list)
-
-        # Determine force and moment dispersions
-        FM_samples = np.asarray(FM_samples)
-        self.FM_dispersions = np.std(FM_samples,axis=0)
-        end_time = time.time()
-
-        # Plot dispersions in each force and moment
-        plot_dir = "./MCDispersions"
-        if not os.path.exists(plot_dir):
-            os.mkdir(plot_dir)
-        
-        shape = FM_samples[0].shape
-        self.MC_dispersions = np.zeros(shape)
+                
+        # Force derivatives with respect to controls
+        shape = R_u[0].shape
         for i in range(shape[0]):
             for j in range(shape[1]):
                 plt.figure()
-                name = self.FM_names[i*shape[1]+j]
-                
-                # Plot histogram
-                x = FM_samples[:,i,j].flatten()
-                plt.hist(x,density=True,label=name,color="gray",lw=0)
-
-                # Plot normal distribution
-                x_space = np.linspace(min(x),max(x),100)
-                x_mean_info,_,x_std_info = stats.bayes_mvs(x,alpha=0.95)
-                x_mean = x_mean_info.statistic
-                x_std = x_std_info.statistic
-                self.MC_dispersions[i,j] = x_std
-                fit = stats.norm.pdf(x_space,x_mean,x_std)
-                plt.plot(x_space,fit,"k-",label="Normal PDF")
-
-                # Plot confidence interval of standard deviation
-                x_std_upper = x_std_info.minmax[1]
-                x_std_lower = x_std_info.minmax[0]
-                upper_fit = stats.norm.pdf(x_space,x_mean,x_std_upper)
-                lower_fit = stats.norm.pdf(x_space,x_mean,x_std_lower)
-                plt.plot(x_space,upper_fit,"k--")
-                plt.plot(x_space,lower_fit,"k--")
-
-                # Format and save
-                plt.xlabel(name)
-                plt.legend()
-                plt.savefig(plot_dir+"/"+name,format='svg')
+                plt.semilogx(grids,R_u[:,i,j],'kx--')
+                plt.xlabel("Grid Points")
+                deriv_name = "d"+self.FM_names[j+3]+"/dd"+self.control_names[i][0]
+                plt.ylabel(deriv_name)
+                plt.savefig(plot_dir+deriv_name.replace("/","_"),bbox_inches='tight',format='svg')
                 plt.close()
 
-        return end_time-start_time
-
-    def run_lin_cov(self,separation_vec,airplane,dispersions,trim_iterations=2,grid=100):
-        """Runs linear covariance analysis on the specified airplane using the given dispersions."""
-
-        # Calculate derivatives
-        self.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid)
-
-    def plot_perturbation_convergence(self,separation_vec,airplane,perturbation,grids,trim_iterations=2,trim_once=True,trim_grid=100):
+    def plot_perturbation_convergence(self,separation_vec,airplane,perturbation,grids,trim_iterations=2,trim_once=True,trim_grid=None):
         """Plots the grid convergence of the forces and moments generated by a given perturbation."""
+
+        # Assign default grid if needs be
+        if trim_grid is None:
+            trim_grid = self.default_grid
 
         # Run perturbation at each grid level
         FM_list = []
@@ -755,7 +749,7 @@ class TailingScenario:
                 name = self.FM_names[i*shape[1]+j]
                 plt.xlabel("Grid Points")
                 plt.ylabel(name)
-                plt.savefig(plot_dir+"/"+name,format='svg')
+                plt.savefig(plot_dir+"/"+name,bbox_inches='tight',format='svg')
                 plt.close()
 
         # Angles of attack
@@ -763,19 +757,130 @@ class TailingScenario:
         plt.semilogx(grids,alpha_lead_list,"kx--")
         plt.xlabel("Grid Points")
         plt.ylabel("Lead Angle of Attack")
-        plt.savefig(plot_dir+"/LeadAlpha",format='svg')
+        plt.savefig(plot_dir+"/LeadAlpha",bbox_inches='tight',format='svg')
         plt.close()
 
         plt.figure()
         plt.semilogx(grids,alpha_tail_list,"kx--")
         plt.xlabel("Grid Points")
         plt.ylabel("Tail Angle of Attack")
-        plt.savefig(plot_dir+"/TailAlpha",format='svg')
+        plt.savefig(plot_dir+"/TailAlpha",bbox_inches='tight',format='svg')
         plt.close()
+
+    def _get_normal_perturbations(self,variances):
+        """Generates a dict of normally distributed perturbations in the variables specified by variances."""
+        perturbations = {}
+
+        # Get normally distributed variable for each perturbation
+        for key in variances:
+            perturbations[key] = np.random.normal(0.0,np.sqrt(variances[key]))
+
+        return perturbations
+
+    def run_monte_carlo(self,separation_vec,airplane,N_samples,dispersions,grid=None,trim=True):
+        """Runs a Monte Carlo simulation to determine the covariance of forces and moments."""
+
+        # Assign default grid if needs be
+        if grid is None:
+            grid = self.default_grid
+        if trim:
+            self._apply_separation_and_trim(separation_vec,iterations=2,grid=grid)
+        else:
+            self._apply_new_grid(grid)
+
+        # Apply to multiprocessing
+        start_time = time.time()
+        arg_list = [(airplane,self._get_normal_perturbations(dispersions)) for i in range(N_samples)]
+        with mp.Pool() as pool:
+            FM_samples = pool.map(self._get_perturbed_forces_and_moments,arg_list)
+
+        # Get nominal forces and moments
+        FM_nom = self._get_perturbed_forces_and_moments(("tail",{}))
+        F_nom = FM_nom[0].flatten()
+        M_nom = FM_nom[1].flatten()
+
+        # Determine force and moment covariances
+        self.P_ff_MC = np.zeros((3,3))
+        self.P_mm_MC = np.zeros((3,3))
+
+        for i in range(N_samples):
+            self.P_ff_MC += (FM_samples[i][0]-F_nom).T.dot((FM_samples[i][0]-F_nom))
+            self.P_mm_MC += (FM_samples[i][1]-F_nom).T.dot((FM_samples[i][1]-M_nom))
+
+        self.P_ff_MC = self.P_ff_MC/(N_samples-1)
+        self.P_mm_MC = self.P_mm_MC/(N_samples-1)
+
+        end_time = time.time()
+
+        # Plot covariances in each force and moment
+        plot_dir = "./MCDispersions"
+        if not os.path.exists(plot_dir):
+            os.mkdir(plot_dir)
+        
+        FM_samples = np.asarray(FM_samples)
+        shape = FM_samples[0].shape
+        self.MC_dispersions = np.zeros(shape)
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                plt.figure()
+                name = self.FM_names[i*shape[1]+j]
+                
+                # Plot histogram
+                x = FM_samples[:,i,j].flatten()
+                plt.hist(x,density=True,label=name,color="gray",lw=0)
+
+                # Plot normal distribution
+                x_space = np.linspace(min(x),max(x),100)
+                x_mean_info,_,x_std_info = stats.bayes_mvs(x,alpha=0.95)
+                x_mean = x_mean_info.statistic
+                x_std = x_std_info.statistic
+                self.MC_dispersions[i,j] = x_std
+                fit = stats.norm.pdf(x_space,x_mean,x_std)
+                plt.plot(x_space,fit,"k-",label="Normal PDF")
+
+                # Plot confidence interval of standard deviation
+                x_std_upper = x_std_info.minmax[1]
+                x_std_lower = x_std_info.minmax[0]
+                upper_fit = stats.norm.pdf(x_space,x_mean,x_std_upper)
+                lower_fit = stats.norm.pdf(x_space,x_mean,x_std_lower)
+                plt.plot(x_space,upper_fit,"k--")
+                plt.plot(x_space,lower_fit,"k--")
+
+                # Format and save
+                plt.xlabel(name)
+                plt.legend()
+                plt.savefig(plot_dir+"/"+name,bbox_inches='tight',format='svg')
+                plt.close()
+
+        return end_time-start_time
+
+    def run_lin_cov(self,separation_vec,airplane,input_variance,trim_iterations=2,grid=None,trim=True):
+        """Runs linear covariance analysis on the specified airplane using the given dispersions."""
+
+        # Assign default grid if needs be
+        if grid is None:
+            grid = self.default_grid
+
+        # Calculate derivatives
+        self.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid,trim=trim)
+
+        # Create covariance matrices
+        P_xx = np.eye(len(self.state_names))
+        P_uu = np.eye(len(self.control_names))
+        
+        for i,name in enumerate(self.state_names):
+            P_xx[i,i] = input_variance["d"+name]
+
+        for i,name in enumerate(self.control_names):
+            P_uu[i,i] = input_variance[name]
+
+        # Propagate
+        self.P_ff_LC = self.Q_x.T.dot(P_xx).dot(self.Q_x)+self.Q_u.T.dot(P_uu).dot(self.Q_u)
+        self.P_mm_LC = self.R_x.T.dot(P_xx).dot(self.R_x)+self.R_u.T.dot(P_uu).dot(self.R_u)
 
 if __name__=="__main__":
 
-    # Initialize
+    # Clean up old files
     sp.run(["rm","*perturbed*"])
     sp.run(["rm","*trim*"])
 
@@ -788,34 +893,43 @@ if __name__=="__main__":
     situ = TailingScenario(lead,tail)
 
     # Run sensitivities at the trim state
-    situ.run_derivs(r_CG,export_stl=True)
-    print("\nFp:\n{0}".format(situ.F_pbar))
-    print("\nFu:\n{0}".format(situ.F_u))
+    #situ.run_derivs(r_CG,export_stl=True)
+    #print("\nFp:\n{0}".format(situ.F_pbar))
+    #print("\nFc:\n{0}".format(situ.F_c))
 
     # Check force and moment grid convergence
     grid_floats = np.logspace(1,2.5,10)
     grids = list(map(int,grid_floats))
     perturbings = [{"dtheta": 0.1},{"dphi": 0.1},{"dx": 0.1},{"dy": 0.1},{"dz": 0.1}]
-    for perturb in perturbings:
-        situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
+    #for perturb in perturbings:
+    #    situ.plot_perturbation_convergence(r_CG,"tail",perturb,grids)
 
     # Check grid convergence of derivatives
-    situ.plot_derivative_convergence(grids,r_CG)
+    #situ.plot_derivative_convergence(grids,r_CG)
 
     # Run Monte Carlo simulation
     # We're ignoring possible perturbations in yaw and rudder deflection
-    dispersions = {
-        "dx": 5.0,
-        "dy": 5.0,
-        "dz": 5.0,
-        "dphi": 10*np.pi/180,
-        "dtheta": 10*np.pi/180,
-        "aileron": 5*np.pi/180,
-        "elevator": 5*np.pi/180
+    input_variance = {
+        "dx": 9.0,
+        "dy": 9.0,
+        "dz": 36.0,
+        "dphi": 9.0,
+        "dtheta": 9.0,
+        "aileron": 1.0,
+        "elevator": 1.0
     }
-    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",1000,dispersions)
+    N_MC_samples = 10
+    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance)
     print("Monte Carlo took {0} s to run.".format(MC_exec_time))
-    print(situ.FM_dispersions)
+    print("\nResults from Monte Carlo:\n")
+    print("Pff:\n{0}".format(situ.P_ff_MC))
+    print("Pmm:\n{0}".format(situ.P_mm_MC))
 
     # Run LinCov
-    #situ.run_lin_cov(r_CG,"tail",dispersions)
+    situ.run_lin_cov(r_CG,"tail",input_variance,trim=False)
+    print("\nResults from Linear Covariance:\n")
+    print("Pff:\n{0}".format(situ.P_ff_LC))
+    print("Pmm:\n{0}".format(situ.P_mm_LC))
+
+    # Plot results
+    #situ.plot_mc_and_lincov_dispersions()

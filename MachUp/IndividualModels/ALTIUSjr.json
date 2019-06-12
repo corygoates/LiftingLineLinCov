@@ -25,7 +25,7 @@
         "units": "English",
         "velocity": 205,
         "density": 0.0023769,
-        "alpha": 2.081043860098097,
+        "alpha": 2.0810438600916377,
         "beta": 0.0,    
         "omega": {
             "roll": 0.0,
@@ -37,7 +37,7 @@
     "controls": {
         "elevator": {
             "is_symmetric": 1,
-            "deflection": 5.6883770948250074
+            "deflection": 1.1144374741857241
         },
         "rudder": {
             "is_symmetric": 0,
