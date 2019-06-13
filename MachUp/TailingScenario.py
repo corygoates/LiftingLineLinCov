@@ -597,21 +597,14 @@ class TailingScenario:
             F_xc = pool.map(self._calc_cent_diff,arg_list)
 
         # Format derivative matrices
-        for i in range(len(F_xc)):
-            F_xc[i] = F_xc[i].flatten()
-
+        F_xc = np.asarray(F_xc)
         num_states = len(self.state_names)
-        print(num_states)
 
-        self.Q_x = np.asarray(F_xc[:num_states][:3]) # df/dx
-        self.Q_u = np.asarray(F_xc[num_states:][:3]) # df/du
-        print(self.Q_x)
-        print(self.Q_u)
+        self.Q_x = np.asarray(F_xc[:num_states,0]) # df/dx
+        self.Q_u = np.asarray(F_xc[num_states:,0]) # df/du
 
-        self.R_x = np.asarray(F_xc[:num_states][3:]) # dm/dx
-        self.R_u = np.asarray(F_xc[num_states:][3:]) # dm/du
-        print(self.R_x)
-        print(self.R_u)
+        self.R_x = np.asarray(F_xc[:num_states,1]) # dm/dx
+        self.R_u = np.asarray(F_xc[num_states:,1]) # dm/du
 
     def plot_derivative_convergence(self,grids,separation_vec,trim_iterations=2,trim_once=True,trim_grid=None):
         """Plots each derivative as a function of grid points used to show convergence."""
@@ -795,7 +788,10 @@ class TailingScenario:
             FM_samples = pool.map(self._get_perturbed_forces_and_moments,arg_list)
 
         # Get nominal forces and moments
-        FM_nom = self._get_perturbed_forces_and_moments(("tail",{}))
+        if trim: # If it's been trimmed at this grid level, just read in the file
+            _,FM_nom = self._get_forces_and_moments(self.trimmed_filename)
+        else:
+            FM_nom = self._get_perturbed_forces_and_moments(("tail",{}))
         F_nom = FM_nom[0].flatten()
         M_nom = FM_nom[1].flatten()
 
@@ -803,9 +799,9 @@ class TailingScenario:
         self.P_ff_MC = np.zeros((3,3))
         self.P_mm_MC = np.zeros((3,3))
 
-        for i in range(N_samples):
-            self.P_ff_MC += (FM_samples[i][0]-F_nom).T.dot((FM_samples[i][0]-F_nom))
-            self.P_mm_MC += (FM_samples[i][1]-F_nom).T.dot((FM_samples[i][1]-M_nom))
+        for FM_sample in FM_samples:
+            self.P_ff_MC += np.matmul((FM_sample[0]-F_nom).reshape((3,1)),(FM_sample[0]-F_nom).reshape((1,3)))
+            self.P_mm_MC += np.matmul((FM_sample[1]-F_nom).reshape((3,1)),(FM_sample[1]-M_nom).reshape((1,3)))
 
         self.P_ff_MC = self.P_ff_MC/(N_samples-1)
         self.P_mm_MC = self.P_mm_MC/(N_samples-1)
@@ -910,15 +906,15 @@ if __name__=="__main__":
     # Run Monte Carlo simulation
     # We're ignoring possible perturbations in yaw and rudder deflection
     input_variance = {
-        "dx": 9.0,
-        "dy": 9.0,
-        "dz": 36.0,
-        "dphi": 9.0,
-        "dtheta": 9.0,
+        "dx": 1.0,#9.0,
+        "dy": 1.0,#9.0,
+        "dz": 1.0,#36.0,
+        "dphi": 1.0,#9.0,
+        "dtheta": 1.0,#9.0,
         "aileron": 1.0,
         "elevator": 1.0
     }
-    N_MC_samples = 10
+    N_MC_samples = 1000
     MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance)
     print("Monte Carlo took {0} s to run.".format(MC_exec_time))
     print("\nResults from Monte Carlo:\n")
