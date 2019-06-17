@@ -39,8 +39,8 @@ class TailingScenario:
     def __init__(self,lead_filename,tail_filename,**kwargs):
         self.lead_filename = lead_filename
         self.tail_filename = tail_filename
-        self.dx = kwargs.get("dx",0.01)
-        self.dtheta = kwargs.get("dtheta",0.01)
+        self.dx = kwargs.get("dx",1.0)
+        self.dtheta = kwargs.get("dtheta",1.0)
         self.default_grid = kwargs.get("default_grid",100)
         self.grid = copy.deepcopy(self.default_grid)
 
@@ -89,8 +89,8 @@ class TailingScenario:
 
         # Copy lead surfaces
         for key in self.lead_dict["wings"]:
-            if "v" in key: # Skip vertical stabilizers for now to avoid grid convergence issues
-                continue
+            #if "v" in key: # Skip vertical stabilizers for now to avoid grid convergence issues
+            #    continue
             new_key = "lead_"+key
             self.combined_dict["wings"][new_key] = copy.copy(self.lead_dict["wings"][key])
             self.combined_dict["wings"][new_key]["grid"] = self.grid
@@ -770,14 +770,14 @@ class TailingScenario:
 
         return perturbations
 
-    def run_monte_carlo(self,separation_vec,airplane,N_samples,dispersions,grid=None,trim=True):
+    def run_monte_carlo(self,separation_vec,airplane,N_samples,dispersions,grid=None,trim=True,trim_iterations=2):
         """Runs a Monte Carlo simulation to determine the covariance of forces and moments."""
 
         # Assign default grid if needs be
         if grid is None:
             grid = self.default_grid
         if trim:
-            self._apply_separation_and_trim(separation_vec,iterations=2,grid=grid)
+            self._apply_separation_and_trim(separation_vec,iterations=trim_iterations,grid=grid)
         else:
             self._apply_new_grid(grid)
 
@@ -786,6 +786,18 @@ class TailingScenario:
         arg_list = [(airplane,self._get_normal_perturbations(dispersions)) for i in range(N_samples)]
         with mp.Pool() as pool:
             FM_samples = pool.map(self._get_perturbed_forces_and_moments,arg_list)
+
+        # Calculate input covariance
+        self.P_xx_uu = np.zeros((len(dispersions.keys()),len(dispersions.keys())))
+
+        for arg_set in arg_list:
+            xu = np.zeros((len(dispersions.keys()),1))
+            for i,key in enumerate(dispersions):
+                xu[i,0] = arg_set[1][key]
+
+            self.P_xx_uu += np.matmul(xu,xu.T)
+
+        self.P_xx_uu = self.P_xx_uu/(N_samples-1)
 
         # Get nominal forces and moments
         if trim: # If it's been trimmed at this grid level, just read in the file
@@ -801,7 +813,7 @@ class TailingScenario:
 
         for FM_sample in FM_samples:
             self.P_ff_MC += np.matmul((FM_sample[0]-F_nom).reshape((3,1)),(FM_sample[0]-F_nom).reshape((1,3)))
-            self.P_mm_MC += np.matmul((FM_sample[1]-F_nom).reshape((3,1)),(FM_sample[1]-M_nom).reshape((1,3)))
+            self.P_mm_MC += np.matmul((FM_sample[1]-M_nom).reshape((3,1)),(FM_sample[1]-M_nom).reshape((1,3)))
 
         self.P_ff_MC = self.P_ff_MC/(N_samples-1)
         self.P_mm_MC = self.P_mm_MC/(N_samples-1)
@@ -853,10 +865,6 @@ class TailingScenario:
     def run_lin_cov(self,separation_vec,airplane,input_variance,trim_iterations=2,grid=None,trim=True):
         """Runs linear covariance analysis on the specified airplane using the given dispersions."""
 
-        # Assign default grid if needs be
-        if grid is None:
-            grid = self.default_grid
-
         # Calculate derivatives
         self.run_derivs(separation_vec,trim_iterations=trim_iterations,grid=grid,trim=trim)
 
@@ -873,6 +881,11 @@ class TailingScenario:
         # Propagate
         self.P_ff_LC = self.Q_x.T.dot(P_xx).dot(self.Q_x)+self.Q_u.T.dot(P_uu).dot(self.Q_u)
         self.P_mm_LC = self.R_x.T.dot(P_xx).dot(self.R_x)+self.R_u.T.dot(P_uu).dot(self.R_u)
+
+    def calc_MC_LC_error(self):
+        """Calculates the percent error between the covariances predicted by MC and LC."""
+        self.P_ff_error = abs(self.P_ff_LC-self.P_ff_MC)/abs(self.P_ff_MC)
+        self.P_mm_error = abs(self.P_mm_LC-self.P_mm_MC)/abs(self.P_mm_MC)
 
 if __name__=="__main__":
 
@@ -914,18 +927,24 @@ if __name__=="__main__":
         "aileron": 1.0,
         "elevator": 1.0
     }
-    N_MC_samples = 1000
-    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance)
-    print("Monte Carlo took {0} s to run.".format(MC_exec_time))
-    print("\nResults from Monte Carlo:\n")
-    print("Pff:\n{0}".format(situ.P_ff_MC))
-    print("Pmm:\n{0}".format(situ.P_mm_MC))
+    N_MC_samples = 100
+    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance,trim_iterations=1)
 
     # Run LinCov
     situ.run_lin_cov(r_CG,"tail",input_variance,trim=False)
+
+    # Compare MC and LC results
+    situ.calc_MC_LC_error()
+
+    # Output results
+    print("Monte Carlo took {0} s to run.".format(MC_exec_time))
+    print("\nResults from Monte Carlo:\n")
+    print("Input Covariance:\n{0}".format(situ.P_xx_uu))
+    print("Pff:\n{0}".format(situ.P_ff_MC))
+    print("Pmm:\n{0}".format(situ.P_mm_MC))
     print("\nResults from Linear Covariance:\n")
     print("Pff:\n{0}".format(situ.P_ff_LC))
     print("Pmm:\n{0}".format(situ.P_mm_LC))
-
-    # Plot results
-    #situ.plot_mc_and_lincov_dispersions()
+    print("\nErrors:\n")
+    print("Pff:\n{0}".format(situ.P_ff_error))
+    print("Pmm:\n{0}".format(situ.P_mm_error))
