@@ -108,6 +108,7 @@ class TailingScenario:
 
         # Copy lead surfaces
         for key in self._lead_dict["wings"]:
+            # For now, we choose to include lead vertical stabilizer
             #if "v" in key: # Skip vertical stabilizers for now to avoid grid convergence issues
             #    continue
             new_key = "lead_"+key
@@ -157,7 +158,7 @@ class TailingScenario:
             grid = self._default_grid
         self._grid = grid
 
-        if hasattr(self,"trimmed_dict"):
+        if hasattr(self,"_trimmed_dict"):
             # Apply to trimmed dict
             for wing in self._trimmed_dict["wings"]:
                 self._trimmed_dict["wings"][wing]["grid"] = self._grid
@@ -303,16 +304,15 @@ class TailingScenario:
         This process can be repeated for finer trim results using the iterations
         parameter."""
 
+        # If the trimmed dict does not already exist, create it
+        # This is done so that subsequent trimming operations have a better starting point.
+        if not hasattr(self,"_trimmed_dict"):
+            self._trimmed_dict = copy.deepcopy(self._combined_dict)
+
         # Assign default grid if needs be
         if grid is None:
             grid = self._default_grid
-
         self._apply_new_grid(grid)
-
-        # If the trimmed dict does not already exist, create it
-        # This is done so that subsequent trimming operations have a better starting point.
-        if not hasattr(self,"trimmed_dict"):
-            self._trimmed_dict = copy.deepcopy(self._combined_dict)
 
         # Apply separation
         self._r = separation_vec
@@ -455,16 +455,18 @@ class TailingScenario:
             if key in "dxdydz": # Position
                 perturbed = self._perturb_position(perturbed,key,perturbations[key],airplane)
 
-        # Once position perturbations are applied, apply all others
-        for key in perturbations: # The key specifies the variable to perturb
+        # Once position perturbations are applied, apply pitch
+        for key in perturbations:
+            if key == "dtheta": # Pitch
+                perturbed = self._perturb_pitch(perturbed,perturbations[key],airplane)
+
+        # All others
+        for key in perturbations:
             if key in "aileronelevatorrudder": # Control input
                 perturbed = self._perturb_control(perturbed,key,perturbations[key],airplane)
 
             elif key == "dphi": # Roll
                 perturbed = self._perturb_roll(perturbed,perturbations[key],airplane)
-        
-            elif key == "dtheta": # Pitch
-                perturbed = self._perturb_pitch(perturbed,perturbations[key],airplane)
 
             elif key == "dpsi": # Yaw
                 raise ValueError("Perturbations in yaw are not allowed.")
@@ -799,14 +801,14 @@ class TailingScenario:
         plt.semilogx(grids,theta_lead_list,"kx--")
         plt.xlabel("Grid Points")
         plt.ylabel("Lead elevation angle")
-        plt.savefig(plot_dir+"/Leadtheta",bbox_inches='tight',format='svg')
+        plt.savefig(plot_dir+"/LeadTheta",bbox_inches='tight',format='svg')
         plt.close()
 
         plt.figure()
         plt.semilogx(grids,theta_tail_list,"kx--")
         plt.xlabel("Grid Points")
         plt.ylabel("Tail elevation angle")
-        plt.savefig(plot_dir+"/Tailtheta",bbox_inches='tight',format='svg')
+        plt.savefig(plot_dir+"/TailTheta",bbox_inches='tight',format='svg')
         plt.close()
 
     def _get_normal_perturbations(self,variances):
@@ -850,9 +852,6 @@ class TailingScenario:
         self.P_xx_uu = self.P_xx_uu/(N_samples-1)
 
         # Get nominal forces and moments
-        #if trim: # If it's been trimmed at this grid level, just read in the file
-        #    _,FM_nom = self._get_forces_and_moments(self.trimmed_filename)
-        #else:
         FM_nom = self._get_perturbed_forces_and_moments(("tail",{},-1))
         F_nom = FM_nom[0].flatten()
         M_nom = FM_nom[1].flatten()
@@ -1082,14 +1081,10 @@ if __name__=="__main__":
     # Initialize scenario
     lead = "./IndividualModels/C130.json"
     tail = "./IndividualModels/ALTIUSjr.json"
-    situ = TailingScenario(lead,tail,default_grid=40)
+    situ = TailingScenario(lead,tail)
 
 #    # Run sensitivities at the trim state
 #    situ.run_derivs("tail",r_CG,export_stl=True,trim_iterations=1)
-#    print("Qx:\n{0}".format(situ.Q_x))
-#    print("Qu:\n{0}".format(situ.Q_u))
-#    print("Rx:\n{0}".format(situ.R_x))
-#    print("Ru:\n{0}".format(situ.R_u))
 #
 #    # Check force and moment grid convergence
 #    grid_floats = np.logspace(1,2.5,10)
@@ -1100,31 +1095,43 @@ if __name__=="__main__":
 #
 #    # Check grid convergence of derivatives
 #    situ.plot_derivative_convergence(grids,r_CG)
-#
-#    # Observe nonlinear coupling
-#    situ.print_nonlinear_coupling(r_CG,trim_iterations=0)
-#
+
     # Run Monte Carlo simulation
-    input_variance = {
+    input_variance_0 = {
         "dx": 9.0,
         "dy": 9.0,
-        "dz": 36.0,
-        "dtheta": 1.0,#25.0,
-        "dphi": 25.0,
-        "aileron": 16.0,
-        "elevator": 16.0
+        "dz": 25.0,
+        "dtheta": 9.0,
+        "dphi": 9.0,
+        "aileron": 9.0,
+        "elevator": 9.0
+    }
+    input_variance_1 = {
+        "dx": 9.0,
+        "dy": 9.0,
+        "dz": 25.0,
+        "dtheta": 1.0,
+        "dphi": 9.0,
+        "aileron": 1.0,
+        "elevator": 1.0
+    }
+    input_variance_2 = {
+        "dx": 400.0,
+        "dy": 400.0,
+        "dz": 400.0,
+        "dtheta": 49.0,
+        "dphi": 100.0,
+        "aileron": 100.0,
+        "elevator": 100.0
     }
     N_MC_samples = 1000
-    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance,trim_iterations=1)
+    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance_0,trim_iterations=1)
 
     # Run LinCov
-    LC_exec_time = situ.run_lin_cov(r_CG,"tail",input_variance,trim=False)
-#
-#    # Check linear predictions
-#    situ.check_linear_approximations(r_CG,input_variance)
-#
+    LC_exec_time = situ.run_lin_cov(r_CG,"tail",input_variance_0,trim=False)
+
 #    # Check linearity
-#    situ.plot_mapping_linearity(r_CG,input_variance,num_points=20)
+#    situ.plot_mapping_linearity(r_CG,input_variance_0,num_points=20)
 
     # Compare MC and LC results
     situ.calc_MC_LC_error()
