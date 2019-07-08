@@ -4,6 +4,7 @@ import os
 import copy
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
+import matplotlib.ticker as tck
 import multiprocessing as mp
 import subprocess as sp
 import random
@@ -444,9 +445,9 @@ class TailingScenario:
         perturbed = copy.deepcopy(self._trimmed_dict)
 
         # Create descriptive file tag
-        tag_list = []
+        tag_list = [mp.current_process().name]
         for key in perturbations:
-            tag_list.append(key+"{:.2f}".format(perturbations[key]))
+            tag_list.append("_"+key+"{:.1f}".format(perturbations[key]))
         tag = "".join(tag_list)
 
         # Apply specified perturbations
@@ -996,7 +997,7 @@ class TailingScenario:
                     plt.xlabel(DOF)
                     FM_name = self._FM_names[i*3+j]
                     plt.ylabel(FM_name)
-                    plt.savefig(plot_dir+"/"+FM_name+"_"+DOF,bbox="tight",format="svg")
+                    plt.savefig(plot_dir+"/"+FM_name+"_"+DOF,bbox_inches="tight",format="svg")
                     plt.close()
 
     def check_linear_approximations(self,r_CG,variances,trim_iterations=1):
@@ -1069,6 +1070,76 @@ class TailingScenario:
 
         situ._run_machup(stacked_filename)
 
+    def plot_percent_mismatch_vs_perturbation(self,r_CG,max_variances,MC_samples=1000,points=10):
+        """Plots the percent mismatch between MC and LC as a function of perturbation variance."""
+
+        # Create directory
+        plot_dir = "./MismatchPlots"
+        if not os.path.exists(plot_dir):
+            os.mkdir(plot_dir)
+
+        # Trim
+        self._apply_separation_and_trim(r_CG)
+
+        # For each perturbation DOF
+        for key in max_variances:
+
+            # Don't plot a whole bunch of zeros...
+            if abs(max_variances[key])<1e-10:
+                continue
+
+            # Create covariance dict
+            input_variance = copy.deepcopy(max_variances)
+            for input_key in list(input_variance.keys()):
+                input_variance[input_key] = 0.0
+
+            # Create distribution of variances
+            variances_incl_zero = np.linspace(0.0,max_variances[key],points+1)
+            variances = variances_incl_zero[1:]
+
+            Pff_error_list = []
+            Pmm_error_list = []
+
+            # For each level of variance
+            for variance in variances:
+
+                # Run MC and LC
+                input_variance[key] = variance
+                _ = self.run_monte_carlo(r_CG,"tail",MC_samples,input_variance,trim=False)
+                _ = self.run_lin_cov(r_CG,"tail",input_variance,trim=False)
+                self.calc_MC_LC_error()
+
+                # Store results
+                Pff_error_list.append(self.P_ff_error)
+                Pmm_error_list.append(self.P_mm_error)
+
+            Pff_error_list = np.asarray(Pff_error_list)
+            Pmm_error_list = np.asarray(Pmm_error_list)
+
+            # Plot force results
+            for i,force0 in enumerate(self._FM_names[:3]):
+                for j,force1 in enumerate(self._FM_names[:3]):
+                    if i>j:
+                        continue
+                    plt.figure()
+                    plt.plot(variances,Pff_error_list[:,i,j],"kx--")
+                    plt.xlabel(key)
+                    plt.ylabel("Mismatch in Var({0},{1})".format(force0,force1))
+                    plt.gca().yaxis.set_major_formatter(tck.PercentFormatter(1))
+                    plt.savefig(plot_dir+"/Var({0},{1})_{2}".format(force0,force1,key),bbox_inches='tight',format='svg')
+
+            # Plot moment results
+            for i,moment0 in enumerate(self._FM_names[3:]):
+                for j,moment1 in enumerate(self._FM_names[3:]):
+                    if i>j:
+                        continue
+                    plt.figure()
+                    plt.plot(variances,Pmm_error_list[:,i,j],"kx--")
+                    plt.xlabel(key)
+                    plt.ylabel("Mismatch in Var({0},{1})".format(moment0,moment1))
+                    plt.gca().yaxis.set_major_formatter(tck.PercentFormatter(1))
+                    plt.savefig(plot_dir+"/Var({0},{1})_{2}".format(moment0,moment1,key),bbox_inches='tight',format='svg')
+
 if __name__=="__main__":
 
     # Clean up old files
@@ -1097,7 +1168,7 @@ if __name__=="__main__":
 #    situ.plot_derivative_convergence(grids,r_CG)
 
     # Run Monte Carlo simulation
-    input_variance_0 = {
+    input_variance_nominal = {
         "dx": 9.0,
         "dy": 9.0,
         "dz": 25.0,
@@ -1106,7 +1177,7 @@ if __name__=="__main__":
         "aileron": 9.0,
         "elevator": 9.0
     }
-    input_variance_1 = {
+    input_variance_drag_limited = {
         "dx": 9.0,
         "dy": 9.0,
         "dz": 25.0,
@@ -1115,7 +1186,7 @@ if __name__=="__main__":
         "aileron": 1.0,
         "elevator": 1.0
     }
-    input_variance_2 = {
+    input_variance_unlimited = {
         "dx": 400.0,
         "dy": 400.0,
         "dz": 400.0,
@@ -1124,35 +1195,40 @@ if __name__=="__main__":
         "aileron": 100.0,
         "elevator": 100.0
     }
-    N_MC_samples = 1000
-    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance_0,trim_iterations=1)
+    
+#    N_MC_samples = 1000
+#    input_variance = input_variance_nominal
+#    MC_exec_time = situ.run_monte_carlo(r_CG,"tail",N_MC_samples,input_variance,trim_iterations=1)
+#
+#    # Run LinCov
+#    LC_exec_time = situ.run_lin_cov(r_CG,"tail",input_variance,trim=False)
+#
+##    # Check linearity
+##    situ.plot_mapping_linearity(r_CG,input_variance_0,num_points=20)
+#
+#    # Compare MC and LC results
+#    situ.calc_MC_LC_error()
+#
+#    # Output results
+#    print("Monte Carlo took {0} s to run.".format(MC_exec_time))
+#    print("\nResults from Monte Carlo:\n")
+#    print("Input Covariance:\n{0}".format(situ.P_xx_uu))
+#    print("Pff:\n{0}".format(situ.P_ff_MC))
+#    print("Pmm:\n{0}".format(situ.P_mm_MC))
+#    print("\nLinear Covariance took {0} s to run.".format(LC_exec_time))
+#    print("\nResults from Linear Covariance:\n")
+#    print("Qx:\n{0}".format(situ.Q_x))
+#    print("Qu:\n{0}".format(situ.Q_u))
+#    print("Rx:\n{0}".format(situ.R_x))
+#    print("Ru:\n{0}".format(situ.R_u))
+#    print("\nPff:\n{0}".format(situ.P_ff_LC))
+#    print("Pmm:\n{0}".format(situ.P_mm_LC))
+#    print("\nDifferences:\n")
+#    print("Pff:\n{0}".format(situ.P_ff_MC-situ.P_ff_LC))
+#    print("Pmm:\n{0}".format(situ.P_mm_MC-situ.P_mm_LC))
+#    print("\nErrors:\n")
+#    print("Pff:\n{0}".format(situ.P_ff_error))
+#    print("Pmm:\n{0}".format(situ.P_mm_error))
 
-    # Run LinCov
-    LC_exec_time = situ.run_lin_cov(r_CG,"tail",input_variance_0,trim=False)
-
-#    # Check linearity
-#    situ.plot_mapping_linearity(r_CG,input_variance_0,num_points=20)
-
-    # Compare MC and LC results
-    situ.calc_MC_LC_error()
-
-    # Output results
-    print("Monte Carlo took {0} s to run.".format(MC_exec_time))
-    print("\nResults from Monte Carlo:\n")
-    print("Input Covariance:\n{0}".format(situ.P_xx_uu))
-    print("Pff:\n{0}".format(situ.P_ff_MC))
-    print("Pmm:\n{0}".format(situ.P_mm_MC))
-    print("\nLinear Covariance took {0} s to run.".format(LC_exec_time))
-    print("\nResults from Linear Covariance:\n")
-    print("Qx:\n{0}".format(situ.Q_x))
-    print("Qu:\n{0}".format(situ.Q_u))
-    print("Rx:\n{0}".format(situ.R_x))
-    print("Ru:\n{0}".format(situ.R_u))
-    print("\nPff:\n{0}".format(situ.P_ff_LC))
-    print("Pmm:\n{0}".format(situ.P_mm_LC))
-    print("\nDifferences:\n")
-    print("Pff:\n{0}".format(situ.P_ff_MC-situ.P_ff_LC))
-    print("Pmm:\n{0}".format(situ.P_mm_MC-situ.P_mm_LC))
-    print("\nErrors:\n")
-    print("Pff:\n{0}".format(situ.P_ff_error))
-    print("Pmm:\n{0}".format(situ.P_mm_error))
+    # Plot percent mismatch
+    situ.plot_percent_mismatch_vs_perturbation(r_CG,input_variance_unlimited)
