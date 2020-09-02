@@ -1,0 +1,104 @@
+{
+    "reference": {
+        "area": 1745,
+        "longitudinal_length": 13.16,
+        "lateral_length": 132.6
+    },
+    "weight": 155000,
+    "controls": {
+        "elevator": {
+            "is_symmetric": 1
+        },
+        "rudder": {
+            "is_symmetric": 0
+        },
+        "aileron": {
+            "is_symmetric": 0
+        },
+        "flaps": {
+            "is_symmetric": 1
+        }
+    },
+    "airfoils": {
+        "NACA_0010" : "./AirfoilDatabase/NACA_0010.json",
+        "NACA_2410" : "./AirfoilDatabase/NACA_2410.json"
+    },
+    "wings": {
+        "main_wing": {
+            "ID": 1,
+            "is_main": 1,
+            "side": "both",
+            "connect_to" : {
+                "ID" : 0,
+                "dz" : -7.4
+            },
+            "semispan": 66.3,
+            "chord": [[0.0, 16.7642],
+                      [1.0, 9.5556]],
+            "airfoil": "NACA_2410",
+            "sweep" : 20.0,
+            "grid": {
+                "N" : 40
+            },
+            "control_surface": {
+                "root_span": 0.5,
+                "tip_span": 0.8,
+                "chord_fraction": 0.25,
+                "control_mixing": {
+                    "aileron": 1.0,
+                    "flaps": 1.0
+                }
+            }
+        },
+        "v_stab": {
+            "ID": 3,
+            "is_main": 0,
+            "side": "right",
+            "connect_to": {
+                "ID": 1,
+                "location": "root",
+                "dx": -42.0
+            },
+            "semispan": 22.0,
+            "sweep" : 40.0,
+            "dihedral": 90.0,
+            "chord": [[0.0, 18.0],
+                      [1.0, 5.0]],
+            "airfoil": "NACA_0010",
+            "grid": {
+                "N" : 40
+            },
+            "control_surface": {
+                "chord_fraction": 0.25,
+                "control_mixing": {
+                    "rudder": 1.0
+                }
+            }
+        },
+        "h_stab": {
+            "ID": 2,
+            "is_main": 0,
+            "side": "both",
+            "connect_to": {
+                "ID": 1,
+                "location": "root",
+                "dx": -44.5
+            },
+            "semispan": 26.35,
+            "sweep" : 20.0,
+            "twist": -1.5,
+            "chord": [[0.0, 14.84293],
+                      [1.0, 5.19502]],
+            "airfoil" : "NACA_0010",
+            "grid": {
+                "N" : 40
+            },
+            "control_surface": {
+            	"chord_fraction": 0.5,
+            	"control_mixing": {
+            		"elevator": 1.0
+            	}
+            }
+        }
+    }
+}

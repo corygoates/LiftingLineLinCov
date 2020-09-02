@@ -1,0 +1,48 @@
+{
+    "reference" : {
+        "area" : 7.5,
+        "longitudinal_length" : 1.25,
+        "lateral_length" : 6.0
+    },
+    "units" : "English",
+    "weight" : 150,
+    "controls": {
+        "elevator": {
+            "is_symmetric": 1
+        },
+        "aileron": {
+            "is_symmetric": 0
+        }
+    },
+    "airfoils": {
+        "NACA_0010" : "./AirfoilDatabase/NACA_0010.json"
+    },
+    "wings": {
+        "main_wing": {
+            "ID": 1,
+            "is_main": true,
+            "side": "both",
+            "semispan": 31.5,
+            "sweep": [[0.0, 40.0],
+                      [0.5, 40.0],
+                      [0.5, 30.0],
+                      [1.0, 30.0]],
+            "chord" : [[0.0, 38.2],
+                       [0.5, 8.0],
+                       [1.0, 8.0]],
+            "airfoil" : "NACA_0010",
+            "grid": {
+                "N" : 100
+            },
+            "control_surface": {
+                "chord_fraction" : 0.1,
+                "root_span" : 0.55,
+                "tip_span" : 0.95,
+                "control_mixing" : {
+                    "aileron" : 1.0,
+                    "elevator" : 1.0
+                }
+            }
+        }
+    }
+}

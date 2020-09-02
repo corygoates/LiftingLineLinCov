@@ -1,0 +1,20 @@
+{
+    "units" : "English",
+    "scene" : {
+        "aircraft" : {
+            "tanker" : {
+                "file" : "C130.json",
+                "state" : {
+                    "velocity" : 660
+                }
+            },
+            "drone" : {
+                "file" : "LLAD.json",
+                "state" : {
+                    "velocity" : 660,
+                    "position" : [-80.0, 0.0, 20.0]
+                }
+            }
+        }
+    }
+}
