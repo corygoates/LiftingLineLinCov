@@ -1,5 +1,9 @@
 {
     "units" : "English",
+    "solver" : {
+        "max_iterations" : 200,
+        "convergence" : 1e-7
+    },
     "scene" : {
         "aircraft" : {
             "tanker" : {
